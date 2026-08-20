@@ -894,6 +894,61 @@ describe('toolsAgentExecute', () => {
 			);
 		});
 
+		it('should emit tool-call-end with the error when a tool fails', async () => {
+			vi.spyOn(helpers, 'getConnectedTools').mockResolvedValue([mock<Tool>()]);
+			vi.spyOn(outputParserModule, 'getOptionalOutputParser').mockResolvedValue(undefined);
+			mockContext.isStreaming.mockReturnValue(true);
+
+			const toolCallMessage = new AIMessage({
+				content: '',
+				tool_calls: [
+					{ id: 'call_err', name: 'TestTool', args: { input: 'boom' }, type: 'tool_call' },
+				],
+				id: 'msg_err',
+			});
+
+			const mockStreamEvents = async function* () {
+				yield {
+					event: 'on_chat_model_end',
+					data: { output: toolCallMessage },
+				};
+				yield {
+					event: 'on_tool_error',
+					name: 'TestTool',
+					data: { error: new Error('tool exploded') },
+				};
+				yield {
+					event: 'on_chat_model_stream',
+					data: { chunk: new AIMessageChunk({ content: 'Could not compute' }) },
+				};
+				yield {
+					event: 'on_chat_model_end',
+					data: { output: new AIMessage({ content: 'Could not compute' }) },
+				};
+			};
+
+			const mockExecutor = {
+				streamEvents: vi.fn().mockReturnValue(mockStreamEvents()),
+			};
+
+			vi.spyOn(AgentExecutor, 'fromAgentAndTools').mockReturnValue(
+				ensureWithConfig(mockExecutor) as any,
+			);
+
+			await toolsAgentExecute.call(mockContext);
+
+			expect(mockContext.sendChunk).toHaveBeenCalledWith('tool-call-start', 0, undefined, {
+				toolName: 'TestTool',
+				toolCallId: 'call_err',
+				toolInput: '{"input":"boom"}',
+			});
+			expect(mockContext.sendChunk).toHaveBeenCalledWith('tool-call-end', 0, undefined, {
+				toolName: 'TestTool',
+				toolCallId: 'call_err',
+				toolOutput: '"tool exploded"',
+			});
+		});
+
 		it('should not stream text from a turn that also requested tools', async () => {
 			vi.spyOn(helpers, 'getConnectedTools').mockResolvedValue([mock<Tool>()]);
 			vi.spyOn(outputParserModule, 'getOptionalOutputParser').mockResolvedValue(undefined);

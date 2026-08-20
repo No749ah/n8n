@@ -446,7 +446,12 @@ export class RespondToWebhook implements INodeType {
 					this.sendChunk('begin', 0);
 					if (typeof responseBody === 'string' || isDataObject(responseBody)) {
 						this.sendChunk('item', 0, responseBody);
-					} else if (Array.isArray(responseBody)) {
+					} else if (
+						Array.isArray(responseBody) ||
+						typeof responseBody === 'number' ||
+						typeof responseBody === 'boolean' ||
+						responseBody === null
+					) {
 						this.sendChunk('item', 0, JSON.stringify(responseBody));
 					}
 					this.sendChunk('end', 0);

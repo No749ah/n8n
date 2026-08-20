@@ -470,6 +470,27 @@ describe('RespondToWebhook Node', () => {
 			expect(mockExecuteFunctions.sendChunk).toHaveBeenCalledWith('end', 0);
 		});
 
+		it('should stream a scalar JSON response as a stringified item', async () => {
+			mockExecuteFunctions.getInputData.mockReturnValue([{ json: { input: true } }]);
+			mockExecuteFunctions.getNode.mockReturnValue(mock<INode>({ typeVersion: 1.5 }));
+			mockExecuteFunctions.getParentNodes.mockReturnValue([
+				mock<NodeTypeAndVersion>({ type: WAIT_NODE_TYPE }),
+			]);
+			mockExecuteFunctions.isStreaming.mockReturnValue(true);
+			mockExecuteFunctions.sendChunk.mockImplementation(() => {});
+			mockExecuteFunctions.getNodeParameter.mockImplementation((paramName) => {
+				if (paramName === 'respondWith') return 'json';
+				if (paramName === 'options') return { enableStreaming: true };
+				if (paramName === 'responseBody') return '42';
+			});
+
+			await respondToWebhook.execute.call(mockExecuteFunctions);
+
+			expect(mockExecuteFunctions.sendChunk).toHaveBeenCalledWith('begin', 0);
+			expect(mockExecuteFunctions.sendChunk).toHaveBeenCalledWith('item', 0, '42');
+			expect(mockExecuteFunctions.sendChunk).toHaveBeenCalledWith('end', 0);
+		});
+
 		it('should not stream an item when the JSON response body is empty', async () => {
 			mockExecuteFunctions.getInputData.mockReturnValue([{ json: { input: true } }]);
 			mockExecuteFunctions.getNode.mockReturnValue(mock<INode>({ typeVersion: 1.5 }));

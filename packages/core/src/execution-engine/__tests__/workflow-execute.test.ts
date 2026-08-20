@@ -3258,6 +3258,57 @@ describe('WorkflowExecute', () => {
 			expect(afterIndex).toBeGreaterThan(beforeIndex);
 		});
 
+		test('should send node-execute-after chunk when a node succeeds with no data', async () => {
+			// ARRANGE
+			const emptyNode: INode = {
+				id: 'empty-node-id',
+				name: 'EmptyNode',
+				type: 'test.empty',
+				typeVersion: 1,
+				position: [0, 0],
+				parameters: {},
+			};
+
+			const emptyNodeType = mock<INodeType>({
+				description: {
+					name: 'test.empty',
+					displayName: 'Test Empty Node',
+					defaultVersion: 1,
+					properties: [],
+					inputs: [{ type: NodeConnectionTypes.Main }],
+					outputs: [{ type: NodeConnectionTypes.Main }],
+				},
+				async execute() {
+					return null;
+				},
+			});
+
+			nodeTypes.getByNameAndVersion.mockReturnValue(emptyNodeType);
+
+			const workflow = new Workflow({
+				id: 'test',
+				nodes: [emptyNode],
+				connections: {},
+				active: false,
+				nodeTypes,
+			});
+
+			const waitPromise = createDeferredPromise<IRun>();
+			const testAdditionalData = Helpers.WorkflowExecuteAdditionalData(waitPromise);
+			testAdditionalData.hooks = mockHooks;
+
+			// ACT
+			await workflowExecute.run({ workflow, startNode: emptyNode });
+
+			// ASSERT
+			const chunkTypes = vi
+				.mocked(mockHooks.runHook)
+				.mock.calls.filter(([hookName]) => hookName === 'sendChunk')
+				.map(([, [chunk]]) => (chunk as StructuredChunk).type);
+			expect(chunkTypes).toContain('node-execute-before');
+			expect(chunkTypes).toContain('node-execute-after');
+		});
+
 		test('should not send error chunk when workflow execution succeeds', async () => {
 			// ARRANGE
 			const successNode: INode = {

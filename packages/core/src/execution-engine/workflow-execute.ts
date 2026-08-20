@@ -1997,6 +1997,9 @@ export class WorkflowExecute {
 								// If null gets returned it means that the node did succeed
 								// but did not have any data. So the branch should end
 								// (meaning the nodes afterwards should not be processed)
+								// Close the node-execute-before chunk so streaming consumers
+								// don't wait for a node that already finished.
+								await this.sendNodeChunk(hooks, 'node-execute-after', executionNode, runIndex);
 								continue executionLoop;
 							}
 

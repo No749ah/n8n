@@ -155,8 +155,21 @@ async function processEventStream(
 	const pendingChunksByRun = new Map<string, string[]>();
 
 	// Tool calls announced via tool-call-start that have not ended yet, used to pair
-	// the provider-assigned call id with the matching on_tool_end event.
+	// the provider-assigned call id with the matching on_tool_end / on_tool_error event.
+	// The events carry no call id, so pair with the oldest announced call of the same
+	// tool. AgentExecutor runs tools sequentially, so FIFO order holds.
 	const pendingToolCalls: Array<{ name: string; id?: string }> = [];
+
+	const emitToolCallEnd = (toolName: string, output: unknown) => {
+		const pendingIndex = pendingToolCalls.findIndex((call) => call.name === toolName);
+		const pendingCall = pendingIndex === -1 ? undefined : pendingToolCalls[pendingIndex];
+		if (pendingIndex !== -1) pendingToolCalls.splice(pendingIndex, 1);
+		ctx.sendChunk('tool-call-end', itemIndex, undefined, {
+			toolName,
+			toolCallId: pendingCall?.id,
+			toolOutput: JSON.stringify(output),
+		});
+	};
 
 	ctx.sendChunk('begin', itemIndex);
 	for await (const event of eventStream) {
@@ -215,18 +228,17 @@ async function processEventStream(
 				}
 				break;
 			}
+			case 'on_tool_error': {
+				const toolError: { error?: unknown } | undefined = event.data;
+				emitToolCallEnd(
+					event.name,
+					toolError?.error instanceof Error ? toolError.error.message : toolError?.error,
+				);
+				break;
+			}
 			case 'on_tool_end': {
 				const toolData: { output?: unknown } | undefined = event.data;
-				// The event carries no call id, so pair with the oldest announced call of the
-				// same tool. AgentExecutor runs tools sequentially, so FIFO order holds.
-				const pendingIndex = pendingToolCalls.findIndex((call) => call.name === event.name);
-				const pendingCall = pendingIndex === -1 ? undefined : pendingToolCalls[pendingIndex];
-				if (pendingIndex !== -1) pendingToolCalls.splice(pendingIndex, 1);
-				ctx.sendChunk('tool-call-end', itemIndex, undefined, {
-					toolName: event.name,
-					toolCallId: pendingCall?.id,
-					toolOutput: JSON.stringify(toolData?.output),
-				});
+				emitToolCallEnd(event.name, toolData?.output);
 
 				// Capture tool execution results and match with action
 				if (returnIntermediateSteps && event.data && agentResult.intermediateSteps!.length > 0) {
